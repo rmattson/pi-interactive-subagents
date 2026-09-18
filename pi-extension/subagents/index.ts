@@ -12,6 +12,7 @@ import {
   mkdirSync,
   copyFileSync,
   unlinkSync,
+  statSync,
 } from "node:fs";
 import { homedir } from "node:os";
 import {
@@ -122,6 +123,13 @@ interface AgentDefaults {
   skills?: string;
   thinking?: string;
   /**
+   * Extra pi extensions to load into the child alongside the tool-backed ones
+   * (e.g. a model provider package like `pkg:pi-nanogpt-provider`). Needed when
+   * the agent's model comes from an extension-registered provider, because the
+   * default-deny sandbox would otherwise leave the child without that provider.
+   */
+  extensions?: string[];
+  /**
    * If set (non-empty), this agent is granted the full subagent spawning
    * toolset and may only spawn the listed agents. Presence of this field —
    * not the `tools` list — is what grants spawning. Enforced in the child via
@@ -167,6 +175,82 @@ const BUILTIN_TOOLS = new Set(["read", "write", "edit", "bash", "grep", "find", 
 /** Resolve the global agent config directory, respecting PI_CODING_AGENT_DIR. */
 function getAgentConfigDir(): string {
   return process.env.PI_CODING_AGENT_DIR ?? join(homedir(), ".pi", "agent");
+}
+
+/** Expand a leading ~ to the home directory. */
+function expandHome(p: string): string {
+  if (p === "~") return homedir();
+  if (p.startsWith("~/")) return join(homedir(), p.slice(2));
+  return p;
+}
+
+/**
+ * Extension entry files declared by a package root's pi manifest, falling back
+ * to the conventional `extensions/` directory. Directory entries are expanded
+ * to their top-level .ts/.js files (pi's `-e` takes files, not directories).
+ */
+function packageExtensionEntries(root: string): string[] {
+  const out: string[] = [];
+  let entries: string[] | null = null;
+  try {
+    const manifest = JSON.parse(readFileSync(join(root, "package.json"), "utf8"));
+    const raw = manifest?.pi?.extensions;
+    if (typeof raw === "string") entries = [raw];
+    else if (Array.isArray(raw)) entries = raw.filter((e: unknown): e is string => typeof e === "string");
+  } catch {
+    // No readable manifest — fall through to the conventional directory.
+  }
+  if (!entries) entries = ["extensions"];
+  for (const entry of entries) {
+    const p = join(root, entry);
+    if (!existsSync(p)) continue;
+    if (statSync(p).isFile()) {
+      out.push(p);
+      continue;
+    }
+    for (const f of readdirSync(p).filter((f) => /\.(ts|js)$/.test(f)).sort()) {
+      out.push(join(p, f));
+    }
+  }
+  return out;
+}
+
+/**
+ * Resolve `extensions:` frontmatter entries to concrete extension file paths.
+ * Supported specs:
+ * - `pkg:<name>`      — an npm-installed pi package under <agentDir>/npm/node_modules
+ * - `git:<host/owner/repo>` — a git-installed pi package under <agentDir>/git
+ * - a filesystem path (absolute, or ~-relative) to an extension file or package root
+ *
+ * Needed for model-provider extensions: the default-deny sandbox only reloads
+ * extensions that back whitelisted tools, so a child whose model comes from an
+ * extension-registered provider (e.g. nanogpt) would otherwise fail to resolve
+ * its model at startup.
+ */
+function resolveExtensionSpecs(specs: string[]): string[] {
+  const agentDir = getAgentConfigDir();
+  const out: string[] = [];
+  for (const spec of specs) {
+    try {
+      let root: string;
+      if (spec.startsWith("pkg:")) {
+        root = join(agentDir, "npm", "node_modules", spec.slice(4));
+      } else if (spec.startsWith("git:")) {
+        root = join(agentDir, "git", spec.slice(4));
+      } else {
+        root = expandHome(spec);
+      }
+      if (!existsSync(root)) continue;
+      if (statSync(root).isFile()) {
+        out.push(root);
+        continue;
+      }
+      out.push(...packageExtensionEntries(root));
+    } catch {
+      // Unresolvable spec — skip it rather than break the spawn.
+    }
+  }
+  return out;
 }
 
 // ── Runtime tool-extension registration ─────────────────────────────────────
@@ -291,6 +375,7 @@ function parseAgentDefinition(content: string, fallbackName: string): AgentDefin
           ? "append"
           : undefined,
     skills: getFrontmatterValue(frontmatter, "skill") ?? getFrontmatterValue(frontmatter, "skills"),
+    extensions: parseCommaList(getFrontmatterValue(frontmatter, "extensions")),
     thinking: getFrontmatterValue(frontmatter, "thinking"),
     subagentAgents: parseCommaList(getFrontmatterValue(frontmatter, "subagent_agents")),
     autoExit: parseOptionalBoolean(getFrontmatterValue(frontmatter, "auto-exit")),
@@ -869,6 +954,11 @@ function applySandboxToParts(
       const extPath = getToolExtensionPath(tool);
       if (extPath && existsSync(extPath)) extPaths.add(extPath);
     }
+    // Extra extensions from the agent's `extensions:` frontmatter — typically
+    // model providers, which back no tool and would otherwise be dropped.
+    for (const extPath of loadout.extraExtensions ?? []) {
+      if (existsSync(extPath)) extPaths.add(extPath);
+    }
     for (const extPath of extPaths) {
       parts.push("-e", shellEscape(extPath));
     }
@@ -1349,6 +1439,7 @@ async function launchSubagent(
     autoExit: agentDefs?.autoExit ?? false,
     cwd: effectiveCwd ?? null,
     agentDir: resolvedAgentDir,
+    extraExtensions: agentDefs?.extensions ? resolveExtensionSpecs(agentDefs.extensions) : undefined,
   };
   writeSubagentLoadout(subagentSessionFile, loadout);
 

@@ -108,6 +108,7 @@ You are a specialized agent that does X...
 | `description` | string | Shown in `subagents_list` |
 | `model` | string | Default model |
 | `thinking` | string | `minimal`, `low`, `medium`, or `high` |
+| `extensions` | string | Comma-separated extra extensions to load into the child's sandbox. Supports `pkg:<name>` (npm-installed pi package), `git:<host/owner/repo>` (git-installed pi package), or a direct file path. Use this when the agent's `model:` comes from an extension-registered provider (e.g. `git:github.com/rmattson/pi-nanogpt-provider`) — the default-deny sandbox only reloads extensions that back whitelisted tools, so provider extensions must be listed explicitly or the child can't resolve its model |
 | `tools` | string | Strict tool allowlist. Built-ins: `read`, `write`, `edit`, `bash`, `grep`, `find`, `ls`. Extension-backed: `web_search`, `web_fetch`, `safe_bash`, `video_extract`, `youtube_search`, `google_image_search`. Only the extensions backing the listed tools are loaded into the child |
 | `subagent_agents` | string | Comma-separated agent names this agent may spawn. **Presence of this field grants the spawning toolset** (`subagent`, `subagent_message`, `subagents_list`) and restricts spawn targets to the list. Omit it and the agent cannot spawn at all |
 | `skills` | string | Comma-separated skill names to auto-load |

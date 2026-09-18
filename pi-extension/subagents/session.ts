@@ -114,6 +114,8 @@ export interface SubagentLoadout {
   cwd: string | null;
   /** PI_CODING_AGENT_DIR the subagent resolved config/extensions from, or null. */
   agentDir: string | null;
+  /** Extra extension file paths loaded into the sandbox (e.g. model providers). */
+  extraExtensions?: string[];
 }
 
 /** Path of the loadout sidecar written next to a subagent session file. */

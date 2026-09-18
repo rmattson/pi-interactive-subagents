@@ -2,7 +2,8 @@
 name: scout
 description: Fast codebase recon — explores files, finds patterns, maps architecture
 tools: read, grep, find, ls
-model: openrouter/z-ai/glm-5.3
+model: nanogpt/z-ai/glm-5.3-flash
+extensions: git:github.com/rmattson/pi-nanogpt-provider
 thinking: low
 system-prompt: append
 auto-exit: true
