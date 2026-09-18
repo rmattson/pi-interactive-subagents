@@ -6,10 +6,10 @@
     "pi-package"
   ],
   "license": "MIT",
-  "author": "Amos Blomqvist",
+  "author": "Ryan Mattson",
   "repository": {
     "type": "git",
-    "url": "https://github.com/amosblomqvist/pi-interactive-subagents"
+    "url": "https://github.com/rmattson/pi-interactive-subagents"
   },
   "type": "module",
   "scripts": {
